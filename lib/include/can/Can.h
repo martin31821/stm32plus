@@ -18,7 +18,15 @@ namespace stm32plus {
     public:
 
       enum {
-        E_TX_NO_MAILBOX = 1
+        E_TX_NO_MAILBOX = 1,
+        E_STUFF_ERROR           = ((uint8_t)0x10),
+        E_FORM_ERROR            = ((uint8_t)0x20),
+        E_ACK_ERROR             = ((uint8_t)0x30),
+        E_BIT_RECESSIVE_ERROR   = ((uint8_t)0x40),
+        E_BID_DOMINANT_ERROR    = ((uint8_t)0x50),
+        E_CRC_ERROR             = ((uint8_t)0x60),
+        E_SOFTWARE_SET_ERROR    = ((uint8_t)0x70),
+        
       };
 
     protected:
@@ -34,19 +42,22 @@ namespace stm32plus {
 
       // send remote frame
 
-      bool sendRemoteFrame(uint16_t StdId,uint8_t DLC) const;
-      bool sendRemoteFrame(uint16_t StdId,int32_t ExtId,uint8_t DLC) const;
+      uint8_t sendRemoteFrame(uint16_t StdId,uint8_t DLC) const;
+      uint8_t sendRemoteFrame(uint16_t StdId,int32_t ExtId,uint8_t DLC) const;
 
       // send data frame
 
-      bool send(uint16_t StdId,uint8_t DLC,const void *data) const;
-      bool send(uint16_t StdId,int32_t ExtId,uint8_t DLC,const void *data) const;
+      uint8_t send(uint16_t StdId,uint8_t DLC,const void *data) const;
+      uint8_t send(uint16_t StdId,int32_t ExtId,uint8_t DLC,const void *data) const;
 
-      bool send(CanTxMsg& msg) const;
+      uint8_t send(CanTxMsg& msg) const;
 
       bool readyToReceive(uint8_t fifo) const;
       bool receive(uint8_t fifo, CanRxMsg* msg) const;
 
+      bool transmissionPending (uint8_t mbox) const;
+      bool hasErrors () const;
+      
       operator CAN_TypeDef *();
       operator CAN_InitTypeDef *();
   };
@@ -107,7 +118,7 @@ namespace stm32plus {
    * @return true if it worked
    */
 
-  inline bool Can::sendRemoteFrame(uint16_t StdId,uint8_t DLC) const {
+  inline uint8_t Can::sendRemoteFrame(uint16_t StdId,uint8_t DLC) const {
 
     CanTxMsg msg;
 
@@ -128,7 +139,7 @@ namespace stm32plus {
    * @return true if it worked
    */
 
-  inline bool Can::sendRemoteFrame(uint16_t StdId,int32_t ExtId,uint8_t DLC) const {
+  inline uint8_t Can::sendRemoteFrame(uint16_t StdId,int32_t ExtId,uint8_t DLC) const {
 
     CanTxMsg msg;
 
@@ -151,7 +162,7 @@ namespace stm32plus {
    * @return true if it worked
    */
 
-  inline bool Can::send(uint16_t StdId,uint8_t DLC,const void *data) const {
+  inline uint8_t Can::send(uint16_t StdId,uint8_t DLC,const void *data) const {
 
     CanTxMsg msg;
 
@@ -175,7 +186,7 @@ namespace stm32plus {
    * @return true if it worked
    */
 
-  inline bool Can::send(uint16_t StdId,int32_t ExtId,uint8_t DLC,const void *data) const {
+  inline uint8_t Can::send(uint16_t StdId,int32_t ExtId,uint8_t DLC,const void *data) const {
 
     CanTxMsg msg;
 
@@ -198,12 +209,13 @@ namespace stm32plus {
    * @return true if it worked
    */
 
-  inline bool Can::send(CanTxMsg& msg) const {
-
-    if(CAN_Transmit(_peripheralAddress,&msg)==CAN_TxStatus_NoMailBox)
+  inline uint8_t Can::send(CanTxMsg& msg) const {
+    
+    auto mbox = CAN_Transmit(_peripheralAddress,&msg);
+    if (mbox == CAN_TxStatus_NoMailBox)
       return errorProvider.set(ErrorProvider::ERROR_PROVIDER_CAN,E_TX_NO_MAILBOX,CAN_TxStatus_NoMailBox);
 
-    return true;
+    return mbox;
   }
 
 
@@ -223,11 +235,24 @@ namespace stm32plus {
 
   inline bool Can::receive(uint8_t fifo,CanRxMsg* msg) const {
 
-    while(!readyToReceive(fifo))
+    if (!readyToReceive(fifo))
       return false;
 
     CAN_Receive(_peripheralAddress,fifo,msg);
     return true;
+  }
+                                                    
+  inline bool Can::transmissionPending (uint8_t mbox) const {
+      return CAN_TransmitStatus(_peripheralAddress, mbox) == CAN_TxStatus_Pending;
+  }
+  
+  inline bool Can::hasErrors () const {
+      auto ec = CAN_GetLastErrorCode(_peripheralAddress);
+      if (ec != CAN_ErrorCode_NoErr)
+      {
+          return !errorProvider.set(ErrorProvider::ERROR_PROVIDER_CAN,ec,ec);
+      }
+      return false;
   }
 }
 
